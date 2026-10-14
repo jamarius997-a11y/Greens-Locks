@@ -22,7 +22,7 @@ jobs:
       - name: Publish Preview download
         run: |
           gh release create shield-preview-10011 VanceTV-Shield-Preview.apk \
-            --target 328a3fa2b21ff209fc4ef630e7c7a32f7b36599a \
+            --target "$GITHUB_SHA" \
             --title "Vance TV Shield Performance Preview 10011" \
             --notes "Performance fix for menu navigation: cache sports channel classification, stop Sports catalog scans outside the hub, and sort guide listings off the UI thread. Tests and APK build passed. Shield performance still needs device verification. This manual Preview uses a temporary signing key; replacing an existing Preview may require uninstalling it first. Persistent-key auto-update publication remains pending." \
             --prerelease --latest=false
