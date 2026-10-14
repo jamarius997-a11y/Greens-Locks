@@ -57,7 +57,7 @@ fun accentWash(alpha: Float, second: Boolean = false): Color =
 
 // ------------------------------------------------------------------ navigation rail
 
-enum class RailIconType { HOME, SEARCH, LIVE, MOVIES, SERIES, FAVORITES, GUIDE, SETTINGS }
+enum class RailIconType { HOME, SEARCH, LIVE, SPORTS, MOVIES, SERIES, FAVORITES, GUIDE, SETTINGS }
 
 data class RailItem(val icon: RailIconType, val label: String, val selected: Boolean)
 
@@ -68,6 +68,7 @@ fun RailIcon(type: RailIconType, color: Color, modifier: Modifier = Modifier.siz
             RailIconType.HOME -> androidx.compose.material.icons.Icons.Rounded.Home
             RailIconType.SEARCH -> androidx.compose.material.icons.Icons.Rounded.Search
             RailIconType.LIVE -> androidx.compose.material.icons.Icons.Rounded.LiveTv
+            RailIconType.SPORTS -> androidx.compose.material.icons.Icons.Rounded.SportsSoccer
             RailIconType.MOVIES -> androidx.compose.material.icons.Icons.Rounded.Movie
             RailIconType.SERIES -> androidx.compose.material.icons.Icons.Rounded.VideoLibrary
             RailIconType.FAVORITES -> androidx.compose.material.icons.Icons.Rounded.Star
@@ -639,3 +640,4 @@ fun TopNav(items: List<RailItem>, modifier: Modifier = Modifier, onItem: (RailIc
         }
     }
 }
+

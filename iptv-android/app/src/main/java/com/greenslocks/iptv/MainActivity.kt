@@ -129,7 +129,7 @@ private val pendingLaunch = mutableStateOf<String?>(null)
 private object PipState { @Volatile var ready = false }
 
 private enum class Tab {
-    HOME, LIVE, MOVIES, SERIES, FAVORITES;
+    HOME, LIVE, SPORTS, MOVIES, SERIES, FAVORITES;
 
     fun kind(): Kind? = when (this) {
         LIVE -> Kind.LIVE
@@ -248,6 +248,14 @@ private class AppState(val ctx: Context, val scope: kotlinx.coroutines.Coroutine
     var query by mutableStateOf("")
     var listVersion by mutableIntStateOf(0)
     var allLive by mutableStateOf<List<Entry>?>(null)
+    var sportsQuery by mutableStateOf("")
+    var sportsFilter by mutableStateOf<Sport?>(null)
+    var sportsView by mutableIntStateOf(0)
+    var sportsFavoritesOnly by mutableStateOf(false)
+    var sportsSelected by mutableStateOf<String?>(null)
+    var sportsLoading by mutableStateOf(false)
+    var sportsStatus by mutableStateOf<String?>(null)
+    var sportsRefresh by mutableIntStateOf(0)
     var detailEntry by mutableStateOf<Entry?>(null)
     var detail by mutableStateOf<Detail?>(null)
     var homeShelves by mutableStateOf(emptyList<Shelf>())
@@ -864,6 +872,7 @@ private fun AppState.AppBody() {
     fun resetBrowsing() {
         catCache.clear()
         category = null; series = null; entries = emptyList(); episodes = emptyList()
+        sportsSelected = null; sportsStatus = null
         detailEntry = null; detail = null; allLive = null; query = ""; homeShelves = emptyList()
         counts = emptyMap(); countsLoading.clear(); catFilter = ""; catRegion = "*all"
     }
@@ -1220,7 +1229,46 @@ private fun AppState.AppBody() {
             GuideData(it, if (xmltvUrl.isBlank()) null else { e, from, to -> xmltv.programmesFor(e, from, to) }, xmltvFirst)
         }
     }
-    val guideChannels = if (tab == Tab.LIVE) shownEntries.filter { it.kind == Kind.LIVE }
+    val sportsCategories = catCache[Tab.LIVE].orEmpty().associateBy { it.id }
+    val sportsAllowed = allLive.orEmpty().filter { e ->
+        visible(e) && (showHidden || catKey(Kind.LIVE, e.cat) !in hiddenCats) &&
+            (!kidsMode || catKey(Kind.LIVE, e.cat) in kidsCats)
+    }
+    val sportsChannels = sportsAllowed.filter { isSportsChannel(it, sportsCategories[it.cat]?.name.orEmpty()) }
+    val sportsIds = sportsChannels.map { it.id }.toSet()
+    val sportsListings = sportsEvents(sportsAllowed, guide?.cache.orEmpty(), sportsIds, now)
+    LaunchedEffect(tab, provider, guide, sportsRefresh) {
+        if (tab != Tab.SPORTS) return@LaunchedEffect
+        val p = provider ?: return@LaunchedEffect
+        sportsLoading = true
+        sportsStatus = null
+        try {
+            ensureCategories(p, Tab.LIVE)
+            if (allLive == null || sportsRefresh > 0) allLive = p.allLive()
+            val categories = catCache[Tab.LIVE].orEmpty().associateBy { it.id }
+            val allowed = allLive.orEmpty().filter { e ->
+                visible(e) && (showHidden || catKey(Kind.LIVE, e.cat) !in hiddenCats) &&
+                    (!kidsMode || catKey(Kind.LIVE, e.cat) in kidsCats)
+            }
+            // Prioritize sports networks and favorite channels; bound provider requests.
+            val candidates = (allowed.filter { isSportsChannel(it, categories[it.cat]?.name.orEmpty()) } +
+                allowed.filter { isFav(it) }).distinctBy { it.id }.take(120)
+            if (sportsRefresh > 0) candidates.forEach { guide?.cache?.remove(it.id) }
+            kotlinx.coroutines.coroutineScope {
+                candidates.forEach { ch -> launch { guide?.load(ch) } }
+            }
+            sportsStatus = if (candidates.isEmpty()) "No sports networks detected. Your Live TV channels are still available."
+                else "Guide checked for ${candidates.size} channels · Refresh for the latest listings"
+        } catch (cancelled: kotlinx.coroutines.CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            sportsStatus = "Sports listings could not load. Select Refresh to try again."
+        } finally {
+            sportsLoading = false
+        }
+    }
+    val guideChannels = if (tab == Tab.SPORTS) sportsChannels
+    else if (tab == Tab.LIVE) shownEntries.filter { it.kind == Kind.LIVE }
     else favoriteEntries.filter { it.kind == Kind.LIVE && visible(it) }
 
     fun moveCategory(kind: Kind, c: Category, delta: Int) {
@@ -1427,6 +1475,7 @@ private fun AppState.AppBody() {
     LaunchedEffect(fullscreen) { if (!fullscreen) panelOpen = false }
     // Scroll positions live here so they survive the screen being swapped for an overlay.
     val homeState = rememberLazyListState()
+    val sportsState = rememberLazyListState()
     val liveState = rememberLazyListState()
     val moviesGrid = rememberLazyGridState()
     val seriesGrid = rememberLazyGridState()
@@ -1436,7 +1485,7 @@ private fun AppState.AppBody() {
     }
     // Put focus on the first item when a screen comes up; its node may not exist yet, so retry briefly.
     LaunchedEffect(listVersion) {
-        if (!isTv) return@LaunchedEffect
+        if (!isTv || tab == Tab.SPORTS) return@LaunchedEffect
         repeat(20) {
             delay(80)
             if (runCatching { firstItem.requestFocus() }.isSuccess) return@LaunchedEffect
@@ -2325,6 +2374,7 @@ private fun AppState.AppBody() {
                 RailItem(RailIconType.HOME, "Home", tab == Tab.HOME),
                 RailItem(RailIconType.SEARCH, "Search", false),
                 RailItem(RailIconType.LIVE, "Live TV", tab == Tab.LIVE),
+                RailItem(RailIconType.SPORTS, "Sports", tab == Tab.SPORTS),
                 RailItem(RailIconType.MOVIES, "Movies", tab == Tab.MOVIES),
                 RailItem(RailIconType.SERIES, "Series", tab == Tab.SERIES),
                 RailItem(RailIconType.FAVORITES, "Favorites", tab == Tab.FAVORITES),
@@ -2336,6 +2386,7 @@ private fun AppState.AppBody() {
                     RailIconType.HOME -> openTab(Tab.HOME)
                     RailIconType.SEARCH -> { searchQuery = ""; searchResults = emptyMap(); searchOpen = true }
                     RailIconType.LIVE -> openTab(Tab.LIVE)
+                    RailIconType.SPORTS -> openTab(Tab.SPORTS)
                     RailIconType.MOVIES -> openTab(Tab.MOVIES)
                     RailIconType.SERIES -> openTab(Tab.SERIES)
                     RailIconType.FAVORITES -> openTab(Tab.FAVORITES)
@@ -2449,6 +2500,23 @@ private fun AppState.AppBody() {
                             }
                         }
 
+                        Tab.SPORTS -> SportsScreen(
+                            channels = sportsChannels, events = sportsListings, programmes = guide?.cache.orEmpty(),
+                            now = now, loading = sportsLoading, status = sportsStatus,
+                            query = sportsQuery, onQuery = { sportsQuery = it; sportsSelected = null },
+                            sport = sportsFilter, onSport = { sportsFilter = it; sportsSelected = null },
+                            view = sportsView, onView = { sportsView = it; sportsSelected = null },
+                            favoritesOnly = sportsFavoritesOnly,
+                            onFavoritesOnly = { sportsFavoritesOnly = !sportsFavoritesOnly; sportsSelected = null },
+                            favoriteKeys = favoriteEntries.map { it.key() }.toSet(), reminderKeys = reminderKeys,
+                            nameOf = ::nameOf, listState = sportsState, selectedKey = sportsSelected,
+                            onSelected = { sportsSelected = it }, onPlay = { playNow(it, true) },
+                            onRemind = ::toggleReminder, onFavorite = ::toggleFavorite,
+                            onOptions = { menuTarget = MenuTarget.EntryT(it) },
+                            onRefresh = { sportsRefresh++ },
+                            onGuide = { if (sportsChannels.isNotEmpty()) guideOpen = true else toast("No sports channels found") },
+                            onMultiview = { loadAccount(); player.pause(); multiOpen = true },
+                        )
                         Tab.LIVE -> Row(Modifier.fillMaxSize().padding(horizontal = 14.dp, vertical = 12.dp)) {
                             CategoryPanel(
                                 Modifier.width(if (isTv) 230.dp else 150.dp).fillMaxHeight(),
@@ -2587,3 +2655,4 @@ private fun AppState.AppBody() {
 }
 
 private data class Quad<A, B, C, D>(val a: A, val b: B, val c: C, val d: D)
+
