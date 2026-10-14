@@ -1,0 +1,28 @@
+name: Publish tested Shield performance Preview
+on:
+  push:
+    branches: ['codex/sports-hub-preview']
+    paths: ['.github/workflows/sports-preview-release.yml']
+permissions:
+  contents: write
+  actions: read
+jobs:
+  publish:
+    if: github.repository == 'jamarius997-a11y/Greens-Locks'
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - name: Download tested Preview APK
+        run: |
+          gh run download 38512055702 --name vancetv-preview-apk --dir apk
+          cp apk/app-release.apk VanceTV-Shield-Preview.apk
+          echo '866c854a7616c8de75d9382e1d211c1e100949757589ee729569c79d0d327d73  VanceTV-Shield-Preview.apk' | sha256sum --check
+      - name: Publish Preview download
+        run: |
+          gh release create shield-preview-10011 VanceTV-Shield-Preview.apk \
+            --target "$GITHUB_SHA" \
+            --title "Vance TV Shield Performance Preview 10011" \
+            --notes "Performance fix for menu navigation: cache sports channel classification, stop Sports catalog scans outside the hub, and sort guide listings off the UI thread. Tests and APK build passed. Shield performance still needs device verification. This manual Preview uses a temporary signing key; replacing an existing Preview may require uninstalling it first. Persistent-key auto-update publication remains pending." \
+            --prerelease --latest=false
