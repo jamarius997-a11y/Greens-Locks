@@ -1,4 +1,4 @@
-name: Publish tested Sports Hub Preview
+name: Publish tested Shield performance Preview
 on:
   push:
     branches: ['codex/sports-hub-preview']
@@ -16,13 +16,13 @@ jobs:
     steps:
       - name: Download tested Preview APK
         run: |
-          gh run download 38509548264 --name vancetv-preview-apk --dir apk
-          cp apk/app-release.apk VanceTV-SportsHub-Preview.apk
-          echo '5344d92f52fd86eba0d143b0880e4a8b269bbd48d63f901ed32c949c19f67baa  VanceTV-SportsHub-Preview.apk' | sha256sum --check
+          gh run download 38512055702 --name vancetv-preview-apk --dir apk
+          cp apk/app-release.apk VanceTV-Shield-Preview.apk
+          echo '866c854a7616c8de75d9382e1d211c1e100949757589ee729569c79d0d327d73  VanceTV-Shield-Preview.apk' | sha256sum --check
       - name: Publish Preview download
         run: |
-          gh release create sports-hub-preview-3 VanceTV-SportsHub-Preview.apk \
-            --target 644070b0190d3c018841d3a498b14722f80e0a87 \
-            --title "Vance TV Sports Hub Preview" \
-            --notes "Sports Hub with On Now, Coming Up, sports filters, favorites, reminders, and multiview access. Unit tests and release APK build passed. TV device testing remains pending. Replacing the previous Preview may require uninstalling it first; Beta installs separately." \
+          gh release create shield-preview-10011 VanceTV-Shield-Preview.apk \
+            --target 328a3fa2b21ff209fc4ef630e7c7a32f7b36599a \
+            --title "Vance TV Shield Performance Preview 10011" \
+            --notes "Performance fix for menu navigation: cache sports channel classification, stop Sports catalog scans outside the hub, and sort guide listings off the UI thread. Tests and APK build passed. Shield performance still needs device verification. This manual Preview uses a temporary signing key; replacing an existing Preview may require uninstalling it first. Persistent-key auto-update publication remains pending." \
             --prerelease --latest=false
