@@ -1,0 +1,28 @@
+name: Publish tested Sports Hub Preview
+on:
+  push:
+    branches: ['codex/sports-hub-preview']
+    paths: ['.github/workflows/sports-preview-release.yml']
+permissions:
+  contents: write
+  actions: read
+jobs:
+  publish:
+    if: github.repository == 'jamarius997-a11y/Greens-Locks'
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - name: Download tested Preview APK
+        run: |
+          gh run download 38509548264 --name vancetv-preview-apk --dir apk
+          cp apk/app-release.apk VanceTV-SportsHub-Preview.apk
+          echo '5344d92f52fd86eba0d143b0880e4a8b269bbd48d63f901ed32c949c19f67baa  VanceTV-SportsHub-Preview.apk' | sha256sum --check
+      - name: Publish Preview download
+        run: |
+          gh release create sports-hub-preview-3 VanceTV-SportsHub-Preview.apk \
+            --target 644070b0190d3c018841d3a498b14722f80e0a87 \
+            --title "Vance TV Sports Hub Preview" \
+            --notes "Sports Hub with On Now, Coming Up, sports filters, favorites, reminders, and multiview access. Unit tests and release APK build passed. TV device testing remains pending. Replacing the previous Preview may require uninstalling it first; Beta installs separately." \
+            --prerelease --latest=false
