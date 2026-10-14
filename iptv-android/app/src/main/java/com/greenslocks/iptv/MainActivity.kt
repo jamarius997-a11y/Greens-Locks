@@ -1092,10 +1092,6 @@ private fun AppState.AppBody() {
         scope.launch { account = runCatching { p.account() }.getOrNull() }
     }
     fun checkUpdates(silent: Boolean) {
-        if (BuildConfig.PREVIEW) {
-            if (!silent) updateState = UpdateState.Failed("Preview builds are updated manually")
-            return
-        }
         scope.launch {
             if (!silent) updateState = UpdateState.Checking
             val r = runCatching { Updater.latest() }.getOrNull()
@@ -1112,7 +1108,7 @@ private fun AppState.AppBody() {
     fun downloadUpdate(r: Release) {
         scope.launch {
             updateState = UpdateState.Downloading(0)
-            runCatching { Updater.download(ctx, r.url) { pct -> updateState = UpdateState.Downloading(pct) } }
+            runCatching { Updater.download(ctx, r) { pct -> updateState = UpdateState.Downloading(pct) } }
                 .onSuccess { f ->
                     updateState = UpdateState.Idle
                     if (!Updater.install(ctx, f)) toast("Allow Vance TV to install apps, then choose Update again")

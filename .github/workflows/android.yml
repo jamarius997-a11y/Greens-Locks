@@ -9,6 +9,9 @@ permissions:
   contents: write
 jobs:
   build:
+    concurrency:
+      group: vancetv-${{ github.event_name == 'pull_request' && github.ref || 'publish' }}
+      cancel-in-progress: false
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -27,7 +30,7 @@ jobs:
           BETA_COMMIT: ${{ contains(github.event.head_commit.message, '[beta]') }}
         run: |
           # Only the upstream main and beta development branches may publish releases.
-          # Other branches and pull requests build a separate, manually updated preview.
+          # Preview has a separate package and update feed; PRs never publish.
           if [[ "$EVENT_NAME" == "pull_request" || "$REPO_NAME" != "jrvance2/Greens-Locks" || ( "$REF_NAME" != "main" && "$REF_NAME" != "claude/lucid-hopper-c9nw1w" ) ]]; then
             echo "BETA_FLAG=-Pbeta=true -Ppreview=true" >> "$GITHUB_ENV"; echo "TAG_PREFIX=preview" >> "$GITHUB_ENV"; echo "Preview channel"
           elif [[ "$REF_NAME" == "claude/lucid-hopper-c9nw1w" || "$BETA_COMMIT" == "true" ]]; then
@@ -35,10 +38,12 @@ jobs:
           else
             echo "BETA_FLAG=" >> "$GITHUB_ENV"; echo "TAG_PREFIX=build" >> "$GITHUB_ENV"; echo "Stable channel"
           fi
+          if [[ "$REPO_NAME" == "jamarius997-a11y/Greens-Locks" && "$EVENT_NAME" != "pull_request" && ( "$REF_NAME" == "codex/sports-hub-preview" || "$REF_NAME" == "quiet-home-preview" ) ]]; then
+            echo "PUBLISH_PREVIEW=true" >> "$GITHUB_ENV"
+          fi
       - name: Prepare signing key
-        if: env.TAG_PREFIX != 'preview'
         env:
-          KEYSTORE_BASE64: ${{ secrets.VANCETV_KEYSTORE_BASE64 }}
+          KEYSTORE_BASE64: ${{ env.TAG_PREFIX == 'preview' && secrets.VANCETV_PREVIEW_KEYSTORE_BASE64 || secrets.VANCETV_KEYSTORE_BASE64 }}
         run: |
           if [ -n "$KEYSTORE_BASE64" ]; then
             echo "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/vancetv.jks"
@@ -51,9 +56,9 @@ jobs:
         run: gradle testReleaseUnitTest --no-daemon -Pvc=${{ github.run_number }} $BETA_FLAG
       - run: gradle assembleRelease --no-daemon -Pvc=${{ github.run_number }} $BETA_FLAG
         env:
-          VANCETV_STORE_PASSWORD: ${{ secrets.VANCETV_STORE_PASSWORD }}
-          VANCETV_KEY_ALIAS: ${{ secrets.VANCETV_KEY_ALIAS }}
-          VANCETV_KEY_PASSWORD: ${{ secrets.VANCETV_KEY_PASSWORD }}
+          VANCETV_STORE_PASSWORD: ${{ env.TAG_PREFIX == 'preview' && secrets.VANCETV_PREVIEW_STORE_PASSWORD || secrets.VANCETV_STORE_PASSWORD }}
+          VANCETV_KEY_ALIAS: ${{ env.TAG_PREFIX == 'preview' && secrets.VANCETV_PREVIEW_KEY_ALIAS || secrets.VANCETV_KEY_ALIAS }}
+          VANCETV_KEY_PASSWORD: ${{ env.TAG_PREFIX == 'preview' && secrets.VANCETV_PREVIEW_KEY_PASSWORD || secrets.VANCETV_KEY_PASSWORD }}
       - name: Publish release for in-app updates (stable-signed builds only)
         if: env.TAG_PREFIX != 'preview' && env.VANCETV_KEYSTORE != '' && github.repository == 'jrvance2/Greens-Locks' && github.event_name == 'push'
         env:
@@ -77,3 +82,47 @@ jobs:
         with:
           name: vancetv-${{ env.TAG_PREFIX }}-apk
           path: iptv-android/app/build/outputs/apk/release/app-release.apk
+
+      - name: Publish signed Preview update
+        if: env.PUBLISH_PREVIEW == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          SOURCE_SHA: ${{ github.sha }}
+          RUN_NUMBER: ${{ github.run_number }}
+        run: |
+          if [ -z "$VANCETV_KEYSTORE" ]; then
+            echo "::error::Preview auto-updates require a persistent signing key. Configure VANCETV_PREVIEW_KEYSTORE_BASE64, VANCETV_PREVIEW_STORE_PASSWORD, VANCETV_PREVIEW_KEY_ALIAS, and VANCETV_PREVIEW_KEY_PASSWORD in repository Actions secrets. Existing VANCETV signing secrets are also supported."
+            exit 1
+          fi
+          build_number=$((10000 + RUN_NUMBER))
+          cp app/build/outputs/apk/release/app-release.apk VanceTV-Preview.apk
+          current_title=$(gh release view preview-latest --json name --jq .name 2>/dev/null || true)
+          current_build=$(printf '%s' "$current_title" | sed -n 's/^Vance TV Preview build \([0-9]*\)$/\1/p')
+          if [ -n "$current_build" ] && [ "$current_build" -ge "$build_number" ]; then
+            echo "A newer or equal Preview is already published."
+            exit 0
+          fi
+          # Refuse a changed signing key once the Preview update channel exists.
+          if [ -n "$current_title" ]; then
+            gh release download preview-latest --pattern VanceTV-Preview.apk --dir previous-preview
+            apksigner=$(rg --files "$ANDROID_HOME/build-tools" -g apksigner | sort -V | tail -n 1)
+            new_cert=$("$apksigner" verify --print-certs VanceTV-Preview.apk | sed -n 's/^Signer #1 certificate SHA-256 digest: //p')
+            old_cert=$("$apksigner" verify --print-certs previous-preview/VanceTV-Preview.apk | sed -n 's/^Signer #1 certificate SHA-256 digest: //p')
+            if [ -z "$new_cert" ] || [ "$new_cert" != "$old_cert" ]; then
+              echo "::error::The signing key differs from the published Preview. Restore the original Preview signing secrets."
+              exit 1
+            fi
+          fi
+          tag="preview-build-$build_number"
+          notes="Sports Hub and automatic Preview update checks. Signed with the persistent Preview key. Unit tests and release build passed; TV device testing is still required. A one-time reinstall may be needed when migrating from an older temporary signing key."
+          gh release create "$tag" VanceTV-Preview.apk --target "$SOURCE_SHA" \
+            --title "Vance TV Preview build $build_number" --notes "$notes" --prerelease --latest=false
+          if gh release view preview-latest >/dev/null 2>&1; then
+            gh release upload preview-latest VanceTV-Preview.apk --clobber
+            gh release edit preview-latest --title "Vance TV Preview build $build_number" --notes "$notes" --prerelease --latest=false
+            gh api --method PATCH "repos/$GH_REPO/git/refs/tags/preview-latest" -f sha="$SOURCE_SHA" -F force=true
+          else
+            gh release create preview-latest VanceTV-Preview.apk --target "$SOURCE_SHA" \
+              --title "Vance TV Preview build $build_number" --notes "$notes" --prerelease --latest=false
+          fi

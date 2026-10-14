@@ -4,10 +4,12 @@ plugins {
 }
 
 // CI passes -Pvc=<run number> so every published build is newer than the last (needed for in-app updates).
-val buildNumber = (project.findProperty("vc") as String?)?.toIntOrNull() ?: 2
+val ciBuild = (project.findProperty("vc") as String?)?.toIntOrNull() ?: 2
 // -Pbeta=true builds the beta channel: installs next to the stable app and updates from its own releases.
 val isBeta = project.findProperty("beta") == "true"
 val isPreview = project.findProperty("preview") == "true"
+// Preview starts above the manually published build 42; CI run numbers keep increasing.
+val buildNumber = if (isPreview) 10_000 + ciBuild else ciBuild
 
 android {
     namespace = "com.greenslocks.iptv"
@@ -18,7 +20,7 @@ android {
         minSdk = 23
         targetSdk = 34
         versionCode = buildNumber
-        versionName = "1.2.$buildNumber" + if (isBeta) "-beta" else ""
+        versionName = "1.2.$buildNumber" + when { isPreview -> "-preview"; isBeta -> "-beta"; else -> "" }
         if (isBeta) applicationIdSuffix = ".beta"
         if (isPreview) applicationIdSuffix = ".preview"
         resValue("string", "app_name", if (isBeta) "Vance TV Beta" else "Vance TV")
@@ -88,3 +90,4 @@ dependencies {
     implementation("com.google.zxing:core:3.5.3")
     implementation("androidx.tvprovider:tvprovider:1.0.0")
 }
+
