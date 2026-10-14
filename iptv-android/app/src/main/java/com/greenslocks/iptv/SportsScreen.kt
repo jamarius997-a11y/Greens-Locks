@@ -54,12 +54,17 @@ fun SportsScreen(
             (query.isBlank() || (nameOf(ch) + " " + title).contains(query.trim(), ignoreCase = true)) &&
             (sport == null || sport.matches(title) || sport.matches(nameOf(ch)))
 
-    val shownEvents = events.filter { matches(it.channel, it.programme.title) &&
-        if (view == 0) it.programme.start <= now else it.programme.start > now }
-    val shownChannels = channels.filter { ch ->
-        matches(ch, nowNext(programmes[ch.id].orEmpty(), now).first?.title.orEmpty())
+    val sportsClock = now / 30_000L
+    val shownEvents = remember(events, query, sport, favoritesOnly, favoriteKeys, view, sportsClock) {
+        events.filter { matches(it.channel, it.programme.title) && it.programme.stop > now &&
+            if (view == 0) it.programme.start <= now else it.programme.start > now }
     }
-    val keys = if (view == 2) shownChannels.map { it.key() } else shownEvents.map { it.key }
+    val shownChannels = remember(channels, programmes, query, sport, favoritesOnly, favoriteKeys, sportsClock) {
+        channels.filter { ch -> matches(ch, nowNext(programmes[ch.id].orEmpty(), now).first?.title.orEmpty()) }
+    }
+    val keys = remember(view, shownChannels, shownEvents) {
+        if (view == 2) shownChannels.map { it.key() } else shownEvents.map { it.key }
+    }
     val targetKey = selectedKey?.takeIf { it in keys } ?: keys.firstOrNull()
     val first = remember { FocusRequester() }
     // Restore the last activated card after fullscreen playback; scrolling is owned by App.

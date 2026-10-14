@@ -1,4 +1,4 @@
-@file:OptIn(UnstableApi::class)
+@file:OptIn(UnstableApi::class, kotlinx.coroutines.FlowPreview::class)
 
 package com.greenslocks.iptv
 
@@ -35,6 +35,10 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.flow.debounce
+import kotlinx.coroutines.flow.collectLatest
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.animation.core.Animatable
@@ -1225,14 +1229,40 @@ private fun AppState.AppBody() {
             GuideData(it, if (xmltvUrl.isBlank()) null else { e, from, to -> xmltv.programmesFor(e, from, to) }, xmltvFirst)
         }
     }
-    val sportsCategories = catCache[Tab.LIVE].orEmpty().associateBy { it.id }
-    val sportsAllowed = allLive.orEmpty().filter { e ->
-        visible(e) && (showHidden || catKey(Kind.LIVE, e.cat) !in hiddenCats) &&
-            (!kidsMode || catKey(Kind.LIVE, e.cat) in kidsCats)
+    val sportsCategories = remember(catCache[Tab.LIVE]) {
+        catCache[Tab.LIVE].orEmpty().associateBy { it.id }
     }
-    val sportsChannels = sportsAllowed.filter { isSportsChannel(it, sportsCategories[it.cat]?.name.orEmpty()) }
-    val sportsIds = sportsChannels.map { it.id }.toSet()
-    val sportsListings = sportsEvents(sportsAllowed, guide?.cache.orEmpty(), sportsIds, now)
+    // Do no catalog work in Home, Live, or fullscreen playback; clock ticks reuse this result.
+    val sportsAllowed = remember(tab, allLive, sportsCategories, hiddenEntries, hiddenCats,
+        showHidden, unlocked, hasPin, lockAdult, lockedCats, kidsMode, kidsCats) {
+        if (tab != Tab.SPORTS) emptyList() else allLive.orEmpty().filter { e ->
+            visible(e) && (showHidden || catKey(Kind.LIVE, e.cat) !in hiddenCats) &&
+                (!kidsMode || catKey(Kind.LIVE, e.cat) in kidsCats)
+        }
+    }
+    val sportsChannels by key(sportsAllowed, sportsCategories) {
+        produceState(emptyList<Entry>(), sportsAllowed, sportsCategories) {
+            if (sportsAllowed.isNotEmpty()) value = withContext(Dispatchers.Default) {
+                sportsAllowed.filter { isSportsChannel(it, sportsCategories[it.cat]?.name.orEmpty()) }
+            }
+        }
+    }
+    val sportsIds = remember(sportsChannels) { sportsChannels.map { it.id }.toSet() }
+    val sportsGuide by key(tab, guide) {
+        produceState(emptyMap<String, List<Programme>>(), tab, guide) {
+            if (tab != Tab.SPORTS) return@produceState
+            snapshotFlow { guide?.cache?.toMap().orEmpty() }.debounce(250).collectLatest { value = it }
+        }
+    }
+    val sportsClock = now / 30_000L
+    val sportsListings by key(sportsAllowed, sportsIds, guide) {
+        produceState(emptyList<SportsEvent>(), sportsGuide, sportsClock, fullscreen) {
+            if (sportsAllowed.isEmpty() || fullscreen) return@produceState
+            value = withContext(Dispatchers.Default) {
+                sportsEvents(sportsAllowed, sportsGuide, sportsIds, System.currentTimeMillis())
+            }
+        }
+    }
     LaunchedEffect(tab, provider, guide, sportsRefresh) {
         if (tab != Tab.SPORTS) return@LaunchedEffect
         val p = provider ?: return@LaunchedEffect
@@ -1247,8 +1277,11 @@ private fun AppState.AppBody() {
                     (!kidsMode || catKey(Kind.LIVE, e.cat) in kidsCats)
             }
             // Prioritize sports networks and favorite channels; bound provider requests.
-            val candidates = (allowed.filter { isSportsChannel(it, categories[it.cat]?.name.orEmpty()) } +
-                allowed.filter { isFav(it) }).distinctBy { it.id }.take(120)
+            val favoriteIds = favoriteEntries.map { it.key() }.toSet()
+            val candidates = withContext(Dispatchers.Default) {
+                (allowed.filter { isSportsChannel(it, categories[it.cat]?.name.orEmpty()) } +
+                    allowed.filter { it.key() in favoriteIds }).distinctBy { it.id }.take(120)
+            }
             if (sportsRefresh > 0) candidates.forEach { guide?.cache?.remove(it.id) }
             kotlinx.coroutines.coroutineScope {
                 candidates.forEach { ch -> launch { guide?.load(ch) } }
@@ -2497,7 +2530,7 @@ private fun AppState.AppBody() {
                         }
 
                         Tab.SPORTS -> SportsScreen(
-                            channels = sportsChannels, events = sportsListings, programmes = guide?.cache.orEmpty(),
+                            channels = sportsChannels, events = sportsListings, programmes = sportsGuide,
                             now = now, loading = sportsLoading, status = sportsStatus,
                             query = sportsQuery, onQuery = { sportsQuery = it; sportsSelected = null },
                             sport = sportsFilter, onSport = { sportsFilter = it; sportsSelected = null },
