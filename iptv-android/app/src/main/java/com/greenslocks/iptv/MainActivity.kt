@@ -277,7 +277,6 @@ private class AppState(val ctx: Context, val scope: kotlinx.coroutines.Coroutine
     var uiIdx by mutableIntStateOf(store.int("ui", 1))
     var animIdx by mutableIntStateOf(store.int("anim", 0))
     var startIdx by mutableIntStateOf(store.int("start", 0).coerceIn(0, START_NAMES.lastIndex))
-    var autoplayLaunch by mutableStateOf(store.flag("autoplayLaunch", false))
     var rotateHomeBanner by mutableStateOf(store.flag("rotateHomeBanner", false))
     var startTick by mutableIntStateOf(0)
     var panelOpen by mutableStateOf(false)
@@ -1058,7 +1057,10 @@ private fun AppState.AppBody() {
             Kind.SERIES -> openSeries(e)
             Kind.MOVIE -> openMovie(e)
             Kind.EPISODE -> playNow(e, true)
-            Kind.LIVE -> if (current?.key() == e.key() && tab == Tab.LIVE) fullscreen = true else playNow(e, tab != Tab.LIVE)
+            Kind.LIVE -> if (current?.key() == e.key() && tab == Tab.LIVE) {
+                fullscreen = true
+                if (!player.isPlaying) reloadTick++ // leaving the player pauses it; pressing OK on the channel plays it again
+            } else playNow(e, tab != Tab.LIVE)
         }
     }
 
@@ -1132,7 +1134,6 @@ private fun AppState.AppBody() {
     }
     fun afterImport() {
         accentIdx = store.int("accent", 0); bgIdx = store.int("bg", 0); cardIdx = store.int("cards", 1)
-        autoplayLaunch = store.flag("autoplayLaunch", false)
         rotateHomeBanner = store.flag("rotateHomeBanner", false)
         textIdx = store.int("text", 1); uiIdx = store.int("ui", 1); animIdx = store.int("anim", 0); startIdx = store.int("start", 0).coerceIn(0, START_NAMES.lastIndex)
         sortAz = store.flag("sortAz", false); showHidden = store.flag("showHidden", false)
@@ -1394,11 +1395,10 @@ private fun AppState.AppBody() {
             delay(500)
         }
     }
-    // Stop playback quietly when leaving the live screen; resume live when coming back.
+    // Stop playback quietly when leaving the live screen; it stays stopped until the user picks a channel or presses Play.
     LaunchedEffect(tab, fullscreen) {
         if (fullscreen) return@LaunchedEffect
         if (tab == Tab.LIVE) {
-            if (pausedByNav && current?.kind == Kind.LIVE) reloadTick++
             pausedByNav = false
         } else if (current != null && player.isPlaying) {
             player.pause(); pausedByNav = true
@@ -1495,9 +1495,6 @@ private fun AppState.AppBody() {
     LaunchedEffect(startTick) {
         if (startTick == 0) return@LaunchedEffect
         if (startIdx == 1) openTab(Tab.LIVE)
-        if (autoplayLaunch) {
-            store.string("last")?.let(::decodeEntry)?.takeIf { it.isLiveNow && visible(it) }?.let { playNow(it, true) }
-        }
     }
     LaunchedEffect(panelOpen, panelMode, panelChannels) {
         if (panelOpen) {
@@ -1532,7 +1529,7 @@ private fun AppState.AppBody() {
     BackHandler(enabled = showSetup && provider != null) { showSetup = false }
     BackHandler(enabled = provider != null && !showSetup && tab != Tab.HOME && !overlayActive) { openTab(Tab.HOME) }
     BackHandler(enabled = detailEntry != null) { closeDetail() }
-    BackHandler(enabled = fullscreen) { fullscreen = false; listVersion++ }
+    BackHandler(enabled = fullscreen) { player.pause(); fullscreen = false; listVersion++ }
     BackHandler(enabled = guideOpen) { guideOpen = false; listVersion++ }
     BackHandler(enabled = panelOpen) { panelOpen = false }
     BackHandler(enabled = nextUp != null) { nextUp = null }
@@ -1851,9 +1848,6 @@ private fun AppState.AppBody() {
             SettingSection("Startup", "Playback stays off until you select a channel or press Play.", listOf(
                 SettingItem("Start screen", START_NAMES[startIdx], "What opens when you launch Vance TV",
                     choices = START_NAMES, selected = startIdx, onPick = { i -> startIdx = i; store.setInt("start", i); layoutTick++ }),
-                toggle("Autoplay last channel on launch", "Start the last live channel automatically", autoplayLaunch) {
-                    autoplayLaunch = !autoplayLaunch; store.setFlag("autoplayLaunch", autoplayLaunch)
-                },
             )),
             SettingSection("Layout", "How the app is arranged.", listOf(
                 toggle("Rotate Home banner", "Automatically cycle featured artwork", rotateHomeBanner) {
