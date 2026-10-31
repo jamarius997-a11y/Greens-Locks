@@ -487,7 +487,7 @@ private fun AppState.AppBody() {
                     retries++
                     val n = retries
                     scope.launch {
-                        delay(2000L * n)
+                        delay(if (n == 1) 300L else 1000L * (n - 1))
                         if (currentNow?.kind == Kind.LIVE) player.seekToDefaultPosition()
                         player.prepare()
                     }
@@ -533,7 +533,14 @@ private fun AppState.AppBody() {
         player.addAnalyticsListener(diag)
         onDispose { player.removeListener(listener); player.removeAnalyticsListener(diag); player.release() }
     }
-    LaunchedEffect(Unit) { while (true) { delay(30_000); now = System.currentTimeMillis() } }
+    // Everything reading `now` recomposes when it changes, so only publish a new value once the minute turns.
+    LaunchedEffect(Unit) {
+        while (true) {
+            delay(30_000)
+            val t = System.currentTimeMillis()
+            if (t / 60_000 != now / 60_000) now = t
+        }
+    }
     LaunchedEffect(Unit) { runCatching { BackgroundRefresh.apply(ctx, store.flag("bgRefresh", true)) } }
 
     SideEffect { PipState.ready = fullscreen && current != null }
@@ -2572,6 +2579,7 @@ private fun AppState.AppBody() {
                                     style = MaterialTheme.typography.bodySmall,
                                     modifier = Modifier.padding(start = 4.dp, top = 4.dp, bottom = 4.dp),
                                 )
+                                val liveKeys = remember(shownEntries) { uniqueKeys(shownEntries.map { it.key() }) }
                                 LazyColumn(Modifier.weight(1f).fillMaxWidth(), state = liveState) {
                                     if (busy && shownEntries.isEmpty()) items(8) { SkeletonRow() }
                                     if (!busy && shownEntries.isEmpty()) item {
@@ -2580,7 +2588,7 @@ private fun AppState.AppBody() {
                                             if (query.isNotBlank()) "Nothing matches \"$query\"." else "Pick a category on the left to see its channels.",
                                         )
                                     }
-                                    itemsIndexed(shownEntries) { i, e ->
+                                    itemsIndexed(shownEntries, key = { i, _ -> liveKeys[i] }) { i, e ->
                                         LaunchedEffect(e.id) { guide?.load(e) }
                                         val (cur, _) = nowNext(guide?.cache?.get(e.id).orEmpty(), now)
                                         ChannelRow(
@@ -2624,6 +2632,7 @@ private fun AppState.AppBody() {
                                 } else if (busy && shownEntries.isEmpty()) {
                                     Text("Loading…", color = Palette.muted)
                                 }
+                                val gridKeys = remember(shownEntries) { uniqueKeys(shownEntries.map { it.key() }) }
                                 LazyVerticalGrid(
                                     GridCells.Adaptive(Dimens.posterWidth), Modifier.fillMaxSize(),
                                     state = if (tab == Tab.MOVIES) moviesGrid else seriesGrid,
@@ -2631,7 +2640,7 @@ private fun AppState.AppBody() {
                                     horizontalArrangement = Arrangement.spacedBy(14.dp),
                                     verticalArrangement = Arrangement.spacedBy(20.dp),
                                 ) {
-                                    itemsIndexed(shownEntries) { i, e ->
+                                    itemsIndexed(shownEntries, key = { i, _ -> gridKeys[i] }) { i, e ->
                                         PosterCard(
                                             nameOf(e), e.icon, "", isFav(e), progressOf(e),
                                             if (i == 0) Modifier.focusRequester(firstItem) else Modifier, width = null,
@@ -2656,6 +2665,7 @@ private fun AppState.AppBody() {
                             if (favs.isEmpty()) {
                                 Text("Hold OK on any channel, movie or series to add it here.", Modifier.padding(top = 16.dp), color = Palette.muted)
                             }
+                            val favKeys = remember(favs) { uniqueKeys(favs.map { it.key() }) }
                             LazyVerticalGrid(
                                 GridCells.Adaptive(Dimens.favWidth), Modifier.fillMaxSize(),
                                 state = favGrid,
@@ -2663,7 +2673,7 @@ private fun AppState.AppBody() {
                                 horizontalArrangement = Arrangement.spacedBy(16.dp),
                                 verticalArrangement = Arrangement.spacedBy(16.dp),
                             ) {
-                                itemsIndexed(favs) { i, e ->
+                                itemsIndexed(favs, key = { i, _ -> favKeys[i] }) { i, e ->
                                     WideCard(
                                         titleFor(e), subFor(e), e.icon, false, progressOf(e),
                                         if (i == 0) Modifier.focusRequester(firstItem) else Modifier, width = null,

@@ -114,8 +114,9 @@ fun GuideScreen(
         if (query.length >= 2 && rows.isEmpty()) {
             Text("No matches yet (loading guide data…)", Modifier.padding(8.dp))
         }
+        val rowKeys = remember(rows) { uniqueKeys(rows.map { it.key() }) }
         LazyColumn(Modifier.fillMaxSize()) {
-            itemsIndexed(rows) { i, ch ->
+            itemsIndexed(rows, key = { i, _ -> rowKeys[i] }) { i, ch ->
                 LaunchedEffect(ch.id) { guide.load(ch) }
                 GuideRow(
                     name = nameOf(ch), icon = ch.icon,

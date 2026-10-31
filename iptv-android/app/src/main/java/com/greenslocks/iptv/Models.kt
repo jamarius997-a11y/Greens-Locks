@@ -97,10 +97,26 @@ fun isAdult(name: String): Boolean = adultWords.containsMatchIn(name)
 
 /** Current and following programme at [now]. */
 fun nowNext(list: List<Programme>, now: Long): Pair<Programme?, Programme?> {
-    val upcoming = list.filter { it.stop > now }.sortedBy { it.start }
-    val current = upcoming.firstOrNull()?.takeIf { it.start <= now }
-    val next = if (current != null) upcoming.getOrNull(1) else upcoming.firstOrNull()
-    return current to next
+    // One pass for the two earliest programmes that haven't ended; this runs for every visible row.
+    var first: Programme? = null
+    var second: Programme? = null
+    for (p in list) {
+        if (p.stop <= now) continue
+        if (first == null || p.start < first.start) { second = first; first = p }
+        else if (second == null || p.start < second.start) second = p
+    }
+    val current = first?.takeIf { it.start <= now }
+    return current to (if (current != null) second else first)
+}
+
+/** Unique lazy-list keys for [base]: repeats get a numbered suffix, since a duplicate key crashes a lazy list. */
+fun uniqueKeys(base: List<String>): List<String> {
+    val seen = HashMap<String, Int>(base.size * 2)
+    return base.map { k ->
+        val n = (seen[k] ?: 0) + 1
+        seen[k] = n
+        if (n == 1) k else "$k#$n"
+    }
 }
 
 /** "Record every episode of this show": a channel plus the programme title to match. */

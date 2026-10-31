@@ -63,11 +63,12 @@ fun BoxScope.ChannelPanel(
             )
             if (mode == 0) {
                 val focusIdx = channels.indexOfFirst { it.key() == currentKey }.coerceAtLeast(0)
+                val channelKeys = remember(channels) { uniqueKeys(channels.map { it.key() }) }
                 LazyColumn(Modifier.fillMaxSize()) {
                     if (lastChannel != null) item {
                         ListRow("↺  Last channel", nameOf(lastChannel), false, Modifier.padding(bottom = 6.dp)) { onLast() }
                     }
-                    itemsIndexed(channels) { i, e ->
+                    itemsIndexed(channels, key = { i, _ -> channelKeys[i] }) { i, e ->
                         LaunchedEffect(e.id) { loadEpg(e) }
                         val cur = nowNext(programmesOf(e), now).first
                         ChannelRow(
