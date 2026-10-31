@@ -1,0 +1,18 @@
+# Hand-written baseline profile: precompile the hot UI, player and network code so Compose isn't interpreted
+# for the first sessions after an install. Replace with a measured profile (Macrobenchmark) when one exists.
+HSPLandroidx/compose/**;->**(**)**
+HSPLandroidx/activity/compose/**;->**(**)**
+HSPLandroidx/lifecycle/**;->**(**)**
+HSPLandroidx/media3/exoplayer/**;->**(**)**
+HSPLandroidx/media3/common/**;->**(**)**
+HSPLandroidx/media3/extractor/**;->**(**)**
+HSPLandroidx/media3/datasource/**;->**(**)**
+HSPLcoil/**;->**(**)**
+HSPLokhttp3/**;->**(**)**
+HSPLokio/**;->**(**)**
+HSPLcom/greenslocks/iptv/**;->**(**)**
+Landroidx/compose/**;
+Landroidx/media3/**;
+Lcoil/**;
+Lokhttp3/**;
+Lcom/greenslocks/iptv/**;

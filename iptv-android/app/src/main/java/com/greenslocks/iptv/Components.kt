@@ -263,11 +263,12 @@ fun ShelfRow(
 ) {
     Column {
         SectionTitle(title)
+        val keys = remember(items) { uniqueKeys(items.map { it.key() }) }
         LazyRow(
             contentPadding = PaddingValues(horizontal = 24.dp, vertical = 14.dp),
             horizontalArrangement = Arrangement.spacedBy(14.dp),
         ) {
-            itemsIndexed(items) { i, e ->
+            itemsIndexed(items, key = { i, _ -> keys[i] }) { i, e ->
                 val mod = if (i == 0) firstFocus else Modifier
                 if (wide) {
                     WideCard(

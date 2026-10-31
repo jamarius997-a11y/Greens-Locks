@@ -71,4 +71,6 @@ dependencies {
     implementation("io.coil-kt:coil-compose:2.6.0")
     implementation("com.google.zxing:core:3.5.3")
     implementation("androidx.tvprovider:tvprovider:1.0.0")
+    // Installs src/main/baseline-prof.txt on first launch, which sideloaded builds need (no Play Store to do it).
+    implementation("androidx.profileinstaller:profileinstaller:1.3.1")
 }
