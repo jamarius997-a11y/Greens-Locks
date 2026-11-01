@@ -160,6 +160,7 @@ private val LANG_CODES = listOf<String?>(null, "en", "es", "fr", "de", "pt", "it
 private val PAD_START = listOf(0, 1, 2, 5)
 private val PAD_END = listOf(0, 2, 5, 10, 15)
 private val BUFFERS = listOf("Low", "Normal", "High")
+private val MAX_RES = listOf("Best available", "1080p", "720p")
 private val SORT_NAMES = listOf("Default", "A–Z", "Newest", "Top rated")
 private val SUB_NAMES = listOf("Small", "Medium", "Large")
 private val SUB_SCALES = listOf(0.8f, 1f, 1.35f)
@@ -383,6 +384,7 @@ private class AppState(val ctx: Context, val scope: kotlinx.coroutines.Coroutine
     var lockAdult by mutableStateOf(store.flag("lockAdult", true))
     var hasPin by mutableStateOf(store.hasPin())
     var bufferMode by mutableIntStateOf(store.int("buffer", 1))
+    var maxRes by mutableIntStateOf(store.int("maxRes", 0).coerceIn(0, MAX_RES.lastIndex))
     var resizeIdx by mutableIntStateOf(store.int("resize", 0).coerceIn(0, RESIZES.lastIndex))
     var unlocked by mutableStateOf(false)
     var menuTarget by mutableStateOf<MenuTarget?>(null)
@@ -426,11 +428,13 @@ private fun AppState.AppBody() {
     val effectiveAudio = if (audioMode == 0) smartMode else audioMode
     val player = remember(bufferMode, effectiveAudio, uaMode) {
         Net.setMode(uaMode)
+        // The default byte target is ~130 MB for video, which a 4K stream fills on a 2 GB Shield and pushes it into swap.
+        // Cap the buffer by size too, and let the cap win over the time targets.
         val lc = when (bufferMode) {
-            0 -> DefaultLoadControl.Builder().setBufferDurationsMs(10_000, 20_000, 1_500, 3_000)
-            2 -> DefaultLoadControl.Builder().setBufferDurationsMs(30_000, 90_000, 3_000, 6_000)
-            else -> DefaultLoadControl.Builder().setBufferDurationsMs(30_000, 50_000, 1_500, 4_000)
-        }.build()
+            0 -> DefaultLoadControl.Builder().setBufferDurationsMs(10_000, 20_000, 1_500, 3_000).setTargetBufferBytes(32 shl 20)
+            2 -> DefaultLoadControl.Builder().setBufferDurationsMs(30_000, 90_000, 3_000, 6_000).setTargetBufferBytes(80 shl 20)
+            else -> DefaultLoadControl.Builder().setBufferDurationsMs(30_000, 50_000, 1_500, 4_000).setTargetBufferBytes(48 shl 20)
+        }.setPrioritizeTimeOverSizeThresholds(false).build()
         // OkHttp for the network (connection reuse, redirects, IPv4 first); file:// recordings still work.
         val http = OkHttpDataSource.Factory(Net.client).setUserAgent(Net.userAgent)
         val extractors = DefaultExtractorsFactory().setTsExtractorFlags(
@@ -1139,7 +1143,7 @@ private fun AppState.AppBody() {
         sortAz = store.flag("sortAz", false); showHidden = store.flag("showHidden", false)
         lockAdult = store.flag("lockAdult", true); autoNext = store.flag("autoNext", true)
         matchFps = store.flag("matchFps", true); liveTs = store.flag("liveTs", false)
-        bufferMode = store.int("buffer", 1); resizeIdx = store.int("resize", 0).coerceIn(0, RESIZES.lastIndex)
+        bufferMode = store.int("buffer", 1); maxRes = store.int("maxRes", 0).coerceIn(0, MAX_RES.lastIndex); resizeIdx = store.int("resize", 0).coerceIn(0, RESIZES.lastIndex)
         subSize = store.int("subSize", 1); sortMode = store.int("sortMode", 0)
         LayoutPrefs.load(store); zapStrip = store.flag("zapStrip", false); mergeDupes = store.flag("mergeDupes", true)
         applyNow()
@@ -1423,6 +1427,13 @@ private fun AppState.AppBody() {
             }
         }
         numBuffer = ""
+    }
+    // Pick the smaller rendition when the stream offers one: always in the small preview pane, and in fullscreen if the user capped it.
+    LaunchedEffect(player, fullscreen, maxRes) {
+        val h = when { maxRes == 2 -> 720; maxRes == 1 || !fullscreen -> 1080; else -> 0 }
+        player.trackSelectionParameters = player.trackSelectionParameters.buildUpon().apply {
+            if (h == 0) clearVideoSizeConstraints() else setMaxVideoSize(h * 16 / 9, h)
+        }.build()
     }
     LaunchedEffect(player, matchFps) {
         player.setVideoChangeFrameRateStrategy(
@@ -1880,6 +1891,8 @@ private fun AppState.AppBody() {
                     choices = audioNames, selected = audioOrder.indexOf(audioMode).coerceAtLeast(0), onPick = { i -> audioMode = audioOrder[i]; store.setInt("audioMode", audioMode); layoutTick++ }),
                 SettingItem("Buffer", BUFFERS[bufferMode], "Higher means fewer stalls but a slower start",
                     choices = BUFFERS, selected = bufferMode, onPick = { i -> bufferMode = i; store.setInt("buffer", i); layoutTick++ }),
+                SettingItem("Maximum video quality", MAX_RES[maxRes], "Lower it if 4K channels stutter; only helps streams that offer a smaller version",
+                    choices = MAX_RES, selected = maxRes, onPick = { i -> maxRes = i; store.setInt("maxRes", i); layoutTick++ }),
                 toggle("Match frame rate", "Switch the TV to the video's frame rate", matchFps) { matchFps = !matchFps; store.setFlag("matchFps", matchFps) },
                 toggle("Auto-play next episode", "Start the next episode when one ends", autoNext) { autoNext = !autoNext; store.setFlag("autoNext", autoNext) },
                 SettingItem("Preferred audio language", LANG_NAMES[audioLang.coerceIn(0, LANG_NAMES.lastIndex)], "Picked automatically when a stream offers it",
