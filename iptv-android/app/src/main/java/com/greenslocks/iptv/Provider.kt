@@ -60,7 +60,8 @@ class XtreamProvider(
     val pass: String,
 ) : Provider {
     override val supportsVod = true
-    override var liveFormat: String = "m3u8"
+    // TS by default: HLS delivered frames unevenly on 4K Shield playback (decoder alternated 59.94/60.44 fps).
+    override var liveFormat: String = "ts"
     override var epgOffsetMs: Long = 0L
     override var channelShiftMs: Map<String, Long> = emptyMap()
     private var timezone: String = ""
@@ -312,7 +313,7 @@ class XtreamProvider(
 /** Plain M3U playlist: live channels only (movie/series entries are skipped to save memory). */
 class M3uProvider(private val channels: List<Channel>) : Provider {
     override val supportsVod = false
-    override var liveFormat: String = "m3u8"
+    override var liveFormat: String = "ts"
     override var epgOffsetMs: Long = 0L
     override var channelShiftMs: Map<String, Long> = emptyMap()
     override suspend fun account(): AccountInfo? = null

@@ -287,7 +287,7 @@ private class AppState(val ctx: Context, val scope: kotlinx.coroutines.Coroutine
     var autoNext by mutableStateOf(store.flag("autoNext", true))
     var matchFps by mutableStateOf(store.flag("matchFps", true))
     var subSize by mutableIntStateOf(store.int("subSize", 1))
-    var liveTs by mutableStateOf(store.flag("liveTs", false))
+    var liveTs by mutableStateOf(store.flag("liveTs", true))
     var sortMode by mutableIntStateOf(store.int("sortMode", 0))
     var myList by mutableStateOf(store.list("mylist"))
     var groups by mutableStateOf(store.map("groups"))
@@ -1142,7 +1142,7 @@ private fun AppState.AppBody() {
         textIdx = store.int("text", 1); uiIdx = store.int("ui", 1); animIdx = store.int("anim", 0); startIdx = store.int("start", 0).coerceIn(0, START_NAMES.lastIndex)
         sortAz = store.flag("sortAz", false); showHidden = store.flag("showHidden", false)
         lockAdult = store.flag("lockAdult", true); autoNext = store.flag("autoNext", true)
-        matchFps = store.flag("matchFps", true); liveTs = store.flag("liveTs", false)
+        matchFps = store.flag("matchFps", true); liveTs = store.flag("liveTs", true)
         bufferMode = store.int("buffer", 1); maxRes = store.int("maxRes", 0).coerceIn(0, MAX_RES.lastIndex); resizeIdx = store.int("resize", 0).coerceIn(0, RESIZES.lastIndex)
         subSize = store.int("subSize", 1); sortMode = store.int("sortMode", 0)
         LayoutPrefs.load(store); zapStrip = store.flag("zapStrip", false); mergeDupes = store.flag("mergeDupes", true)
@@ -1349,7 +1349,14 @@ private fun AppState.AppBody() {
         }
         if (!e.isCatchUp && !e.id.startsWith("file://")) pushHistory(e)
         Diag.requested()
-        player.setMediaItem(MediaItem.fromUri(if (e.id.startsWith("file://")) e.id else p.streamUrl(e)))
+        // Pin live playback speed to 1.0: ExoPlayer otherwise nudges speed (0.97-1.03) to hold its live offset, which
+        // shows up as uneven frame pacing (decoder alternating 59.94/60.44 fps) on 4K HLS streams.
+        player.setMediaItem(
+            MediaItem.Builder()
+                .setUri(if (e.id.startsWith("file://")) e.id else p.streamUrl(e))
+                .setLiveConfiguration(MediaItem.LiveConfiguration.Builder().setMinPlaybackSpeed(1f).setMaxPlaybackSpeed(1f).build())
+                .build()
+        )
         player.prepare()
         if (e.kind != Kind.LIVE) {
             val saved = store.long(posKey(e))
